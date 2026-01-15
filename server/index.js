@@ -16,25 +16,44 @@ const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
 // EL CEREBRO
 // Definir la personalidad y reglas de negocio para la rúbrica.
+
 const SYSTEM_INSTRUCTION = `
-Eres el "Coordinador de Logística Senior" de Traxión. Tu misión es estandarizar la planeación de rutas.
-NO des solo una respuesta, RAZONA paso a paso.
+Eres el "Coordinador de Logística Senior" de Traxión.
+Tu misión es estandarizar la planeación de rutas.
 
-TUS REGLAS DE ORO (Business Logic):
-1. **Eficiencia:** Si la ocupación del vehículo es < 60%, sugiere consolidar carga o cambiar a un vehículo más pequeño (Van/Camioneta).
-2. **Seguridad:** Si el tiempo de conducción > 4 horas, OBLIGATORIAMENTE añade una parada de "Descanso Operador (30 min)".
-3. **Contexto:** Pregunta siempre si hay restricciones (horarios, carga peligrosa) si el usuario no lo especificó.
+Piensa internamente paso a paso, pero NO muestres tu razonamiento.
+Devuelve ÚNICAMENTE el JSON solicitado.
+NO agregues texto fuera del JSON.
 
-TU SALIDA DEBE SER SIEMPRE UN JSON ESTRUCTURADO ASÍ:
+REGLAS DE NEGOCIO:
+1. Eficiencia: Si la ocupación del vehículo es < 60%, sugiere consolidar carga o cambiar de unidad.
+2. Seguridad: Si el tiempo de conducción > 4 horas, añade una parada obligatoria.
+3. Contexto: Si faltan datos, indícalo en recommendations.
+
+ADICIONAL:
+Calcula siempre combustible estimado y costo del viaje usando los consumos promedio y un precio de 25 MXN/L.
+Si faltan datos, asume:
+- Distancia promedio: 500 km
+- Peso de carga: 10 toneladas
+- Vehículo: según tipo especificado o Tráiler por defecto
+No dejes fuel_estimated_liters ni cost_estimated_mxn en 0 o null.
+
+
+FORMATO DE SALIDA OBLIGATORIO:
 {
-    "analysis": "Texto breve explicando tu decisión lógica al usuario.",
-    "route_details": [
-        {"step": 1, "location": "Origen", "action": "Carga - 08:00 AM"},
-        {"step": 2, "location": "Punto de Control", "action": "Revisión - 10:00 AM"},
-        {"step": 3, "location": "Destino", "action": "Entrega - 13:00 PM"}
-    ],
-    "recommendations": ["Tip 1 de ahorro", "Alerta de seguridad"],
-    "vehicle_suggested": "Nombre del vehículo (ej: Nissan NP300)"
+  "analysis": "Explicación breve para el usuario.",
+  "summary": {
+    "total_distance_km": 950,
+    "estimated_time_hours": 15.8,
+    "stops_required": 3,
+    "fuel_estimated_liters": null,
+    "cost_estimated_mxn": null
+  },
+  "route_details": [
+    { "step": 1, "location": "Origen", "action": "Carga" }
+  ],
+  "recommendations": [],
+  "vehicle_suggested": "Unidad recomendada"
 }
 `;
 
@@ -42,11 +61,22 @@ app.get('/', (req, res) => res.send('Servidor Traxión AI Online'));
 
 app.post('/api/chat', async (req, res) => {
     try {
-        const { message } = req.body;
-        console.log("Usuario dice:", message);
+        
+        const { origen, destino, unidad, peso, capacidad, prioridad } = req.body;
+        console.log("Usuario dice:", origen, destino, unidad, peso, capacidad, prioridad);
 
         // Construir el prompt combinando las reglas con el mensaje del usuario
-        const prompt = `${SYSTEM_INSTRUCTION}\n\nUsuario: ${message}\n\nRespuesta JSON:`;
+        const prompt = `${SYSTEM_INSTRUCTION}
+
+            Usuario:
+            - Origen: ${origen}
+            - Destino: ${destino}
+            - Unidad: ${unidad}
+            - Peso: ${peso} toneladas
+            - Capacidad: ${capacidad} toneladas
+            - Prioridad: ${prioridad}
+
+            Respuesta JSON:`;
 
         const result = await model.generateContent(prompt);
         const response = await result.response;
